@@ -1,0 +1,30 @@
+{
+  "name": "ankedu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AnkEdu — plateforme d'organisation de cours a domicile",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,yml,yaml}\"",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "db:migrate": "pnpm --filter @ankedu/api exec prisma migrate dev",
+    "db:generate": "pnpm --filter @ankedu/api exec prisma generate",
+    "db:seed": "pnpm --filter @ankedu/api run db:seed",
+    "db:studio": "pnpm --filter @ankedu/api exec prisma studio"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.10.13",
+    "typescript": "^5.9.3"
+  }
+}

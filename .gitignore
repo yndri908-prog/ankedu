@@ -1,0 +1,25 @@
+node_modules/
+.pnpm-store/
+.next/
+out/
+dist/
+build/
+.turbo/
+coverage/
+*.log
+*.tsbuildinfo
+
+# Client Prisma genere
+src/generated/
+apps/api/src/generated/
+
+# Secrets — jamais versionnes
+.env
+.env.local
+.env.*.local
+!.env.example
+
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json

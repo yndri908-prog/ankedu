@@ -1,0 +1,746 @@
+// AnkEdu — modele de donnees
+// Montants en FCFA : entiers, jamais de decimales.
+// Identifiants : UUID v7 (triables chronologiquement, non enumerables).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// =====================================================================
+// ENUMS
+// =====================================================================
+
+enum RoleCode {
+  ADMIN
+  PROFESSOR
+  PARENT
+  SUPER_ADMIN
+  MANAGER
+}
+
+enum ProfessorStatus {
+  PENDING_REVIEW
+  ACTIVE
+  SUSPENDED
+}
+
+enum Cycle {
+  PRIMAIRE
+  COLLEGE
+  LYCEE
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum CourseRequestStatus {
+  NEW
+  CONTACTED
+  NEGOTIATING
+  PRICE_AGREED
+  SEARCHING_PROFESSOR
+  PROFESSOR_CONTACTED
+  CONVERTED
+  CANCELLED
+}
+
+/// Section 16 : ASSIGNED et PUBLISHED sont deux etats distincts.
+/// Un marche ASSIGNED reste invisible dans l'espace professeur.
+enum MarketStatus {
+  DRAFT
+  ASSIGNED
+  PUBLISHED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum DocumentType {
+  CV
+  DIPLOMA
+  ID
+  OTHER
+}
+
+enum CommissionSource {
+  DEFAULT
+  OVERRIDE
+}
+
+enum PaymentDirection {
+  PARENT_IN
+  PROFESSOR_OUT
+}
+
+enum PaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  CANCELLED
+}
+
+enum VideoProvider {
+  URL
+  FILE
+}
+
+enum NotificationType {
+  PROFILE_REGISTERED
+  AWAITING_MARKET
+  MARKET_ASSIGNED
+  NEW_REQUEST
+  NEW_PROFESSOR
+}
+
+// =====================================================================
+// IDENTITE ET ROLES
+// =====================================================================
+
+model Role {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  code        RoleCode @unique
+  label       String
+  permissions Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String @id @default(uuid(7)) @db.Uuid
+  email        String @unique
+  passwordHash String
+
+  roleId String @db.Uuid
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  isActive            Boolean   @default(true)
+  lastLoginAt         DateTime?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  professor     Professor?
+  parent        Parent?
+  notifications Notification[]
+  refreshTokens RefreshToken[]
+
+  auditLogs           AuditLog[]           @relation("AuditActor")
+  createdMarkets      Market[]             @relation("MarketCreatedBy")
+  visibilityUpdates   MarketVisibility[]   @relation("VisibilityUpdatedBy")
+  commissionsApplied  Commission[]         @relation("CommissionAppliedBy")
+  paymentsRecorded    Payment[]            @relation("PaymentRecordedBy")
+
+  @@index([roleId])
+  @@map("users")
+}
+
+/// Jetons de rafraichissement, stockes hashes et revocables individuellement.
+model RefreshToken {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  userAgent String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+  @@map("refresh_tokens")
+}
+
+// =====================================================================
+// ACTEURS
+// =====================================================================
+
+/// Le parent n'a pas de compte en v1 (decision D6) : userId reste nullable.
+model Parent {
+  id        String  @id @default(uuid(7)) @db.Uuid
+  userId    String? @unique @db.Uuid
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  firstName String
+  lastName  String
+  /// Normalise au format E.164, sert de cle de deduplication.
+  phone     String
+  whatsapp  String?
+  email     String?
+  comment   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  students Student[]
+  requests CourseRequest[]
+
+  // Pas de contrainte UNIQUE sur phone : PostgreSQL considere les NULL comme
+  // distincts, donc une cle (phone, deletedAt) n'empecherait rien. La
+  // deduplication est faite par ParentsService avant insertion, et un index
+  // partiel sera ajoute en SQL brut dans la migration si necessaire.
+  @@index([phone])
+  @@index([lastName, firstName])
+  @@map("parents")
+}
+
+/// Donnees minimales sur l'eleve : pas de date de naissance, pas de photo,
+/// pas de bulletin. Minimisation imposee par la section 37.
+model Student {
+  id        String @id @default(uuid(7)) @db.Uuid
+  parentId  String @db.Uuid
+  parent    Parent @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  firstName String
+  levelId   String @db.Uuid
+  level     Level  @relation(fields: [levelId], references: [id], onDelete: Restrict)
+
+  objective String?
+  comment   String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  requests CourseRequest[]
+
+  @@index([parentId])
+  @@index([levelId])
+  @@map("students")
+}
+
+/// « En attente de marche » n'est PAS stocke ici : c'est un etat derive du
+/// nombre de marches publies. status ne decrit que le cycle de vie du compte.
+model Professor {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @unique @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  firstName String
+  lastName  String
+  photoUrl  String?
+  phone     String
+  whatsapp  String?
+  email     String?
+
+  residenceZoneId String? @db.Uuid
+  residenceZone   Zone?   @relation("ProfessorResidence", fields: [residenceZoneId], references: [id], onDelete: SetNull)
+
+  education       String?
+  diplomas        String?
+  experienceYears Int     @default(0)
+  presentation    String?
+
+  status ProfessorStatus @default(PENDING_REVIEW)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  subjects  ProfessorSubject[]
+  levels    ProfessorLevel[]
+  zones     ProfessorZone[]
+  documents ProfessorDocument[]
+  markets   Market[]
+
+  @@index([status])
+  @@index([residenceZoneId])
+  @@index([lastName, firstName])
+  @@map("professors")
+}
+
+/// Section 11 : CV et justificatifs FACULTATIFS.
+/// Stockes dans un bucket prive. storageKey n'est jamais expose tel quel :
+/// l'API ne renvoie qu'une URL signee de courte duree, a un admin authentifie.
+model ProfessorDocument {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  professorId String       @db.Uuid
+  professor   Professor    @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  type        DocumentType
+  storageKey  String       @unique
+  originalName String
+  mimeType    String
+  sizeBytes   Int
+  createdAt   DateTime     @default(now())
+  deletedAt   DateTime?
+
+  @@index([professorId, type])
+  @@map("professor_documents")
+}
+
+// =====================================================================
+// REFERENTIELS
+// =====================================================================
+
+model Subject {
+  id       String  @id @default(uuid(7)) @db.Uuid
+  name     String  @unique
+  slug     String  @unique
+  order    Int     @default(0)
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  professors      ProfessorSubject[]
+  requestSubjects CourseRequestSubject[]
+  marketSubjects  MarketSubject[]
+
+  @@index([isActive, order])
+  @@map("subjects")
+}
+
+model Level {
+  id    String @id @default(uuid(7)) @db.Uuid
+  name  String @unique
+  slug  String @unique
+  cycle Cycle
+  order Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  professors ProfessorLevel[]
+  students   Student[]
+  requests   CourseRequest[]
+  markets    Market[]
+
+  @@index([cycle, order])
+  @@map("levels")
+}
+
+/// Section 12 : les zones d'intervention ne sont JAMAIS exposees au public.
+/// Elles servent uniquement a la recherche de professeurs par l'admin.
+model Zone {
+  id       String  @id @default(uuid(7)) @db.Uuid
+  name     String  @unique
+  city     String  @default("Abidjan")
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  professors         ProfessorZone[]
+  professorResidents Professor[]     @relation("ProfessorResidence")
+  requests           CourseRequest[]
+
+  @@index([isActive, name])
+  @@map("zones")
+}
+
+model ProfessorSubject {
+  professorId String    @db.Uuid
+  professor   Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  subjectId   String    @db.Uuid
+  subject     Subject   @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([professorId, subjectId])
+  @@index([subjectId])
+  @@map("professor_subjects")
+}
+
+model ProfessorLevel {
+  professorId String    @db.Uuid
+  professor   Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  levelId     String    @db.Uuid
+  level       Level     @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  @@id([professorId, levelId])
+  @@index([levelId])
+  @@map("professor_levels")
+}
+
+model ProfessorZone {
+  professorId String    @db.Uuid
+  professor   Professor @relation(fields: [professorId], references: [id], onDelete: Cascade)
+  zoneId      String    @db.Uuid
+  zone        Zone      @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@id([professorId, zoneId])
+  @@index([zoneId])
+  @@map("professor_zones")
+}
+
+// =====================================================================
+// DEMANDE DE COURS
+// =====================================================================
+
+model CourseRequest {
+  id        String @id @default(uuid(7)) @db.Uuid
+  reference String @unique
+
+  parentId  String  @db.Uuid
+  parent    Parent  @relation(fields: [parentId], references: [id], onDelete: Restrict)
+  studentId String  @db.Uuid
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  levelId   String  @db.Uuid
+  level     Level   @relation(fields: [levelId], references: [id], onDelete: Restrict)
+
+  /// 1 a 3 (section 8, etape 3). Verifie par DTO et par contrainte SQL.
+  daysCount Int
+  /// Toujours 120 (section 8, etape 4). Le parent ne peut pas le modifier.
+  sessionDurationMinutes Int @default(120)
+
+  zoneId         String  @db.Uuid
+  zone           Zone    @relation(fields: [zoneId], references: [id], onDelete: Restrict)
+  quartier       String
+  address        String
+  addressDetails String?
+
+  status      CourseRequestStatus @default(NEW)
+  agreedPrice Int?
+  adminNotes  String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  subjects  CourseRequestSubject[]
+  schedules CourseSchedule[]
+  market    Market?
+
+  @@index([status, createdAt])
+  @@index([parentId])
+  @@index([zoneId])
+  @@map("course_requests")
+}
+
+/// 1 a 5 lignes maximum par demande (section 8, etape 2).
+model CourseRequestSubject {
+  requestId String        @db.Uuid
+  request   CourseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  subjectId String        @db.Uuid
+  subject   Subject       @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@id([requestId, subjectId])
+  @@index([subjectId])
+  @@map("course_request_subjects")
+}
+
+/// endTime est TOUJOURS recalcule cote serveur : startTime + 2 heures.
+/// La valeur envoyee par le navigateur est ignoree.
+model CourseSchedule {
+  id        String        @id @default(uuid(7)) @db.Uuid
+  requestId String        @db.Uuid
+  request   CourseRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  dayOfWeek DayOfWeek
+  /// Format HH:mm, heure locale d'Abidjan.
+  startTime String
+  endTime   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requestId, dayOfWeek])
+  @@map("course_schedules")
+}
+
+// =====================================================================
+// MARCHE
+// =====================================================================
+
+model Market {
+  id        String @id @default(uuid(7)) @db.Uuid
+  reference String @unique
+
+  courseRequestId String        @unique @db.Uuid
+  courseRequest   CourseRequest @relation(fields: [courseRequestId], references: [id], onDelete: Restrict)
+
+  /// Nul tant que le marche n'est pas attribue.
+  professorId String?    @db.Uuid
+  professor   Professor? @relation(fields: [professorId], references: [id], onDelete: Restrict)
+
+  levelId String @db.Uuid
+  level   Level  @relation(fields: [levelId], references: [id], onDelete: Restrict)
+
+  /// Invariant verifie en transaction :
+  /// parentPrice = commissionAmount + professorPay
+  parentPrice      Int
+  commissionRate   Int
+  commissionAmount Int
+  professorPay     Int
+
+  status MarketStatus @default(DRAFT)
+
+  /// Deux horodatages distincts : attribuer n'est pas publier (section 16).
+  assignedAt  DateTime?
+  publishedAt DateTime?
+  startDate   DateTime?
+  endDate     DateTime?
+  completedAt DateTime?
+
+  notes String?
+
+  createdById String? @db.Uuid
+  createdBy   User?   @relation("MarketCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  subjects    MarketSubject[]
+  visibility  MarketVisibility?
+  commissions Commission[]
+  payments    Payment[]
+
+  @@index([status, professorId])
+  @@index([professorId, status])
+  @@index([createdAt])
+  @@map("markets")
+}
+
+/// Copie des matieres au moment de l'attribution (decision D4).
+/// Une renegociation de la demande ne doit pas reecrire un marche signe.
+model MarketSubject {
+  marketId  String  @db.Uuid
+  market    Market  @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  subjectId String  @db.Uuid
+  subject   Subject @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+
+  @@id([marketId, subjectId])
+  @@index([subjectId])
+  @@map("market_subjects")
+}
+
+/// Section 17 — fonctionnalite critique.
+/// Tout est a false par defaut : le professeur ne voit RIEN des coordonnees
+/// du parent tant que l'admin n'a pas autorise explicitement chaque champ.
+model MarketVisibility {
+  id       String @id @default(uuid(7)) @db.Uuid
+  marketId String @unique @db.Uuid
+  market   Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  showParentName   Boolean @default(false)
+  showPhone        Boolean @default(false)
+  showWhatsapp     Boolean @default(false)
+  showQuartier     Boolean @default(false)
+  showExactAddress Boolean @default(false)
+
+  updatedById String? @db.Uuid
+  updatedBy   User?   @relation("VisibilityUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("market_visibilities")
+}
+
+// =====================================================================
+// FINANCES
+// =====================================================================
+
+/// Historisee : on conserve chaque taux applique, on ne l'ecrase jamais.
+model Commission {
+  id       String @id @default(uuid(7)) @db.Uuid
+  marketId String @db.Uuid
+  market   Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+
+  rate   Int
+  amount Int
+  source CommissionSource @default(DEFAULT)
+
+  appliedById String? @db.Uuid
+  appliedBy   User?   @relation("CommissionAppliedBy", fields: [appliedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([marketId, createdAt])
+  @@map("commissions")
+}
+
+model Payment {
+  id       String @id @default(uuid(7)) @db.Uuid
+  marketId String @db.Uuid
+  market   Market @relation(fields: [marketId], references: [id], onDelete: Restrict)
+
+  direction PaymentDirection
+  amount    Int
+  method    String?
+  status    PaymentStatus    @default(PENDING)
+  reference String?
+  paidAt    DateTime?
+  note      String?
+
+  recordedById String? @db.Uuid
+  recordedBy   User?   @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([marketId, direction])
+  @@index([status, paidAt])
+  @@map("payments")
+}
+
+// =====================================================================
+// CMS
+// =====================================================================
+
+model Photo {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  title       String
+  storageKey  String
+  url         String
+  alt         String
+  category    String?
+  order       Int     @default(0)
+  isPublished Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isPublished, order])
+  @@map("photos")
+}
+
+model Video {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  title       String
+  description String?
+  provider    VideoProvider @default(URL)
+  url         String?
+  storageKey  String?
+  thumbnail   String?
+  order       Int           @default(0)
+  isPublished Boolean       @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isPublished, order])
+  @@map("videos")
+}
+
+model Testimonial {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  authorName  String
+  authorRole  String?
+  content     String
+  rating      Int?
+  photoUrl    String?
+  order       Int     @default(0)
+  isPublished Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isPublished, order])
+  @@map("testimonials")
+}
+
+model Faq {
+  id          String  @id @default(uuid(7)) @db.Uuid
+  question    String
+  answer      String
+  category    String?
+  order       Int     @default(0)
+  isPublished Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isPublished, order])
+  @@map("faqs")
+}
+
+model Page {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  slug           String  @unique
+  title          String
+  blocks         Json    @default("[]")
+  seoTitle       String?
+  seoDescription String?
+  isPublished    Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@map("pages")
+}
+
+// =====================================================================
+// SYSTEME
+// =====================================================================
+
+/// Numero WhatsApp, telephone, reseaux sociaux, taux de commission par defaut,
+/// textes du site. Section 9 : rien de tout cela n'est code en dur.
+model Setting {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  key       String   @unique
+  value     Json
+  group     String   @default("general")
+  label     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([group])
+  @@map("settings")
+}
+
+model Notification {
+  id     String @id @default(uuid(7)) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    NotificationType
+  title   String
+  body    String
+  linkUrl String?
+  isRead  Boolean          @default(false)
+  readAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+/// Section 42 : ecrit dans la meme transaction que l'action tracee.
+/// Permet de reconstituer qui a revele quelle coordonnee, et quand.
+model AuditLog {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  actorUserId String? @db.Uuid
+  actor       User?   @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

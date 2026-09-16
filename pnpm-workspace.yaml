@@ -1,0 +1,14 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 12 bloque par defaut les scripts d'installation des dependances.
+# Ces paquets en ont legitimement besoin.
+allowBuilds:
+  prisma: true
+  "@prisma/engines": true
+  "@prisma/client": true
+  "@node-rs/argon2": true
+  esbuild: true
+  sharp: false
+  unrs-resolver: false

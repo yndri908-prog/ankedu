@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: ankedu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ankedu
+      POSTGRES_PASSWORD: ankedu_dev_password
+      POSTGRES_DB: ankedu
+    ports:
+      - '5433:5432'
+    volumes:
+      - ankedu_pgdata:/var/lib/postgresql/data
+      - ./docker/init-shadow-db.sql:/docker-entrypoint-initdb.d/10-shadow.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ankedu -d ankedu']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ankedu_pgdata:
