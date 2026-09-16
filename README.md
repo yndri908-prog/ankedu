@@ -11,6 +11,7 @@ Plateforme d’organisation de cours à domicile — primaire, collège, lycée.
 |---|---|
 | 1 — Socle technique | fait |
 | 2 — Modèle de données | fait (schéma + seed ; migration à générer en local) |
+| Intégration de la marque | fait (logo, favicon, image de partage, palette calibrée) |
 | 3 — Authentification et rôles | à faire |
 | 4 — Design system et site public | accueil livrée, reste à faire |
 | 5 à 14 | à faire |
@@ -44,6 +45,28 @@ ankedu/
 ├── docker-compose.yml        PostgreSQL 17 sur le port hôte 5433
 └── turbo.json
 ```
+
+## Identité visuelle
+
+Le logo officiel (fourni le 16/09/2026) est intégré dans `apps/web/public/brand/` et dans les
+fichiers d'icônes de `apps/web/src/app/` (`icon.png`, `apple-icon.png`, `opengraph-image.png`,
+détectés automatiquement par Next.js).
+
+La palette (`apps/web/src/app/globals.css`) a été calibrée sur les couleurs exactes du logo :
+
+| Token | Valeur | Usage |
+|---|---|---|
+| `--color-encre` | `#0b1f4d` | texte principal, fonds sombres |
+| `--color-ocre` | `#c2900f` | boutons, bordures, accents sur fond sombre |
+| `--color-ocre-texte` | `#916c0b` | **seule** variante dorée autorisée en texte sur fond clair |
+
+`--color-ocre` seul ne passe pas le contraste AA en texte sur fond clair (2.76:1, il faut 4.5:1) —
+n'utilisez jamais `text-ocre` sur `bg-papier` ou blanc ; utilisez `text-ocre-texte`.
+
+**Décision en attente :** le logo porte son propre slogan (« Parce que chaque apprenant mérite sa
+chance. »), différent de celui du cahier des charges (« L'excellence commence par un
+accompagnement de qualité. »). Le site utilise actuellement le second dans ses textes. À trancher
+avant la Phase 4.
 
 ## Démarrage
 

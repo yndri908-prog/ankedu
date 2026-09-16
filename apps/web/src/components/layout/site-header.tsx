@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { SITE, lienWhatsApp } from '@/lib/site';
 
@@ -12,18 +13,25 @@ export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-brume/80 bg-papier/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-4">
-        <Link href="/" className="flex items-baseline gap-2">
-          <span className="font-[family-name:var(--font-titre-charge)] text-2xl leading-none font-semibold text-encre">
-            AnkEdu
+        <Link href="/" className="flex items-center gap-2.5" aria-label="AnkEdu — accueil">
+          <Image
+            src="/brand/logo-ankedu.png"
+            alt="AnkEdu"
+            width={720}
+            height={266}
+            priority
+            className="h-9 w-auto sm:h-10"
+          />
+          <span className="hidden self-end pb-0.5 text-xs text-encre-voile sm:inline">
+            Abidjan
           </span>
-          <span className="hidden text-xs text-encre-voile sm:inline">Abidjan</span>
         </Link>
 
         <nav aria-label="Navigation principale" className="hidden lg:block">
           <ul className="flex items-center gap-7 text-sm text-encre-clair">
             {NAVIGATION.map((lien) => (
               <li key={lien.href}>
-                <Link href={lien.href} className="transition-colors hover:text-ocre">
+                <Link href={lien.href} className="transition-colors hover:text-ocre-texte">
                   {lien.libelle}
                 </Link>
               </li>

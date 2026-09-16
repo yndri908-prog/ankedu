@@ -12,13 +12,19 @@
 */
 
 @theme {
-  --color-encre: #10233f;
-  --color-encre-clair: #1f3a63;
-  --color-encre-voile: #4a628a;
+  /* Bleu et or calibres sur le logo officiel (2026-09-16). */
+  --color-encre: #0b1f4d;
+  --color-encre-clair: #23406f;
+  --color-encre-voile: #4c6690;
   --color-papier: #fbfaf8;
   --color-brume: #e7edf3;
-  --color-ocre: #c08a22;
-  --color-ocre-clair: #f4e7cb;
+  /* Or vif : fonds de bouton, bordures, accents sur fond sombre (contraste
+     verifie 5.53:1 sur --color-encre). Jamais en texte sur fond clair. */
+  --color-ocre: #c2900f;
+  /* Or fonce : seule variante utilisable en texte sur --color-papier ou
+     blanc (contraste 4.62:1, conforme AA). */
+  --color-ocre-texte: #916c0b;
+  --color-ocre-clair: #f6e6c3;
   --color-ardoise: #2f6b57;
   --color-ardoise-clair: #dfeae5;
 

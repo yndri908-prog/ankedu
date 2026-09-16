@@ -149,7 +149,7 @@ export default function Accueil() {
         <ol className="mt-12 grid gap-px overflow-hidden rounded-carte bg-brume sm:grid-cols-2 lg:grid-cols-4">
           {ETAPES.map((etape, index) => (
             <li key={etape.titre} className="bg-papier p-7">
-              <span className="font-[family-name:var(--font-titre-charge)] text-3xl text-ocre">
+              <span className="font-[family-name:var(--font-titre-charge)] text-3xl text-ocre-texte">
                 {index + 1}
               </span>
               <h3 className="mt-4 text-lg">{etape.titre}</h3>
