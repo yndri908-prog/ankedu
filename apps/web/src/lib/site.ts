@@ -9,9 +9,9 @@
 export const SITE = {
   nom: 'AnkEdu',
   slogan: "L'excellence commence par un accompagnement de qualite.",
-  telephone: '+225 07 00 00 00 00',
-  telephoneLien: '+2250700000000',
-  whatsapp: '2250700000000',
+  telephone: '+225 07 77 33 57 35',
+  telephoneLien: '+2250777335735',
+  whatsapp: '2250777335735',
   email: 'contact@ankedu.ci',
   ville: 'Abidjan, Côte d’Ivoire',
   url: process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000',
